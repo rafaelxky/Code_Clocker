@@ -1,0 +1,12 @@
+// build
+cargo build --release
+
+rm ~/.tmr/code_clocker
+cp target/release/code_clocker ~/.tmr/
+chmod +x ~/.tmr/code_clocker
+
+ln -sf ~/.tmr/code_clocker ~/.local/bin/tmr
+
+
+
+
