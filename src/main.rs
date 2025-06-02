@@ -1,12 +1,23 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use rand::rngs::ThreadRng;
+use rand::Rng;
 use std::sync::Arc;
 use std::{thread, time::Duration};
 use chrono::Utc;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
 use std::path::PathBuf;
+use std::env;
 
 fn main() -> std::io::Result<()> {
+    let args: Vec<String> = env::args().collect();
+    if  args.len() > 1 && args[1] == "reset" {
+        save_to_file(0);
+
+        print!("Count has ben reset");
+        return Ok(());
+    }
+
     let timestamp: i64 = get_current_time();
 
     // Create cleanup struct which runs code when program ends
@@ -44,11 +55,29 @@ fn get_time_hourly(timestamp: &i64, interval: i64) {
             "Elapsed time : {} seconds",
             convert_time(elapsed)
         );
+        print_quote();
         let total = get_total_time(&timestamp);
         save_to_file(total);
-        let totalStr: String = convert_time(total);
-        println!("Total time (all sessions):{} {}", totalStr, get_badge(&total));
+        let total_str: String = convert_time(total);
+        println!("Total time (all sessions):{} {}", total_str, get_badge(&total));
     }
+}
+
+fn print_quote(){
+    let quotes = vec![
+        "Remember to hidrate",
+        "Remember to take a break",
+        "Watch your posture, you will regret it later",
+        "Take a deep breat",
+        "Don't sit for too long. Stand up and take a walk",
+        "Go touch grass",
+        "Enjoy the next 24 hours",
+        "Hi :)",
+        "There are tinny people inside you computer"
+        ];
+        let mut rng: ThreadRng = rand::thread_rng();
+
+    println!("{}", quotes[rng.gen_range(0..quotes.len())]);
 }
 
 // Calculate total time = previous time + elapsed since start
@@ -104,7 +133,7 @@ fn stop_logging(start_time: &i64) {
         "Stopped the count, time programmed today: {} seconds",
         convert_time(get_time_today(start_time))
     );
-    let mut total = get_total_time(start_time);
+    let total = get_total_time(start_time);
     save_to_file(total);
     let totalStr: String = convert_time(total);
     println!("Total time (all sessions):{} {}", totalStr, get_badge(&total));
@@ -113,28 +142,27 @@ fn stop_logging(start_time: &i64) {
 
 // Convert milliseconds to a human-readable format
 fn convert_time(time: i64) -> String {
-    let mut original_time = time;
-    let mut final_time_string = String::new();
-    let mut temp: i64;
-    // if more than 60 seconds, convert to minutes
-    if original_time / (60 * 1000 * 60 * 24) >= 1 {
-        temp = original_time / 1000 / 60 / 60 / 24;
-        original_time = original_time - (temp * 24 * 60 * 60 * 1000); // Remove days from total time
-        final_time_string.push_str(&format!(" {} days", temp)); // Convert milliseconds to days
-    }
-    if original_time / (60 * 1000 * 60) >= 1 {
-        temp = original_time / 1000 / 60 / 60;
-        original_time = original_time - (temp * 60 * 60 * 1000); // Remove hours from total time
-        final_time_string.push_str(&format!(" {} hours", temp)); // Convert milliseconds to hours
-    }
-    if original_time / (60 * 1000) >= 1{
-        temp = original_time/ 1000 / 60;
-        original_time = original_time - (temp * 60 * 1000); // Remove minutes from total time
-        final_time_string.push_str(&format!(" {} minutes", temp)); // Convert milliseconds to minutes
-    }
+    let mut ms = time;
+    let day_ms = 1000 * 60 * 60 * 24;
+    let hour_ms = 1000 * 60 * 60;
+    let min_ms = 1000 * 60;
+    let sec_ms = 1000;
 
-    final_time_string.push_str(&format!(" {} seconds", original_time / 1000)); // Convert milliseconds to seconds
-    final_time_string
+    let days = ms / day_ms;
+    ms %= day_ms;
+    let hours = ms / hour_ms;
+    ms %= hour_ms;
+    let minutes = ms / min_ms;
+    ms %= min_ms;
+    let seconds = ms / sec_ms;
+
+    let mut parts = Vec::new();
+    if days > 0 { parts.push(format!("{} days", days)); }
+    if hours > 0 { parts.push(format!("{} hours", hours)); }
+    if minutes > 0 { parts.push(format!("{} minutes", minutes)); }
+    parts.push(format!("{} seconds", seconds));
+
+    parts.join(" ")
 }
 
 fn get_badge(time: &i64) -> String {
