@@ -1,24 +1,17 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use rand::rngs::ThreadRng;
-use rand::Rng;
+use user_input::get_user_input;
 use std::sync::Arc;
 use std::{thread, time::Duration};
-use chrono::Utc;
-use std::fs::{self, File};
-use std::io::{BufReader, Read, Write};
-use std::path::PathBuf;
 use std::env;
+mod user_input;
+mod file_handler;
+mod time_handler;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
-    if  args.len() > 1 && args[1] == "reset" {
-        save_to_file(0);
+    if check_args(args) {return Ok(())} 
 
-        print!("Count has ben reset");
-        return Ok(());
-    }
-
-    let timestamp: i64 = get_current_time();
+    let timestamp: i64 = time_handler::get_current_time();
 
     // Create cleanup struct which runs code when program ends
     let _cleanup = Cleanup {
@@ -36,133 +29,51 @@ fn main() -> std::io::Result<()> {
 
     println!("Started counting... Press Ctrl+C to stop.");
 
+    let mut last_save = time_handler::get_current_time();
+    let interval = 60 * 60; // 1 hour in seconds
+    let interval_ms = interval * 1000;
+
     // Loop until Ctrl+C is pressed
     while running.load(Ordering::SeqCst) {
-        thread::sleep(Duration::from_millis(100)); // avoid busy waiting
-        // Print and save elapsed time hourly
-        get_time_hourly(&timestamp, 1 * 60 * 60);
+        thread::sleep(Duration::from_millis(100));
+        let now = time_handler::get_current_time();
+        if now - last_save >= interval_ms {
+            time_handler::get_time_hourly(&timestamp, interval);
+            last_save = now;
+        }
     }
 
     Ok(())
 }
 
-// print and save elapsed time every hour
-// interval is the time between each save
-fn get_time_hourly(timestamp: &i64, interval: i64) {
-    if get_time_today(&timestamp) >= interval * 1000 {
-        let elapsed = get_time_today(&timestamp);
-        println!(
-            "Elapsed time : {} seconds",
-            convert_time(elapsed)
-        );
-        print_quote();
-        let total = get_total_time(&timestamp);
-        save_to_file(total);
-        let total_str: String = convert_time(total);
-        println!("Total time (all sessions):{} {}", total_str, get_badge(&total));
+fn check_args(args: Vec<String>) -> bool{
+     if  args.len() > 1 && args[1] == "reset" {
+        confirm_reset_file();
+        return true;
     }
+    return false;
 }
 
-fn print_quote(){
-    let quotes = vec![
-        "Remember to hidrate",
-        "Remember to take a break",
-        "Watch your posture, you will regret it later",
-        "Take a deep breat",
-        "Don't sit for too long. Stand up and take a walk",
-        "Go touch grass",
-        "Enjoy the next 24 hours",
-        "Hi :)",
-        "There are tinny people inside you computer"
-        ];
-        let mut rng: ThreadRng = rand::thread_rng();
-
-    println!("{}", quotes[rng.gen_range(0..quotes.len())]);
-}
-
-// Calculate total time = previous time + elapsed since start
-fn get_total_time(time: &i64) -> i64 {
-    let previous: i64 = read_from_file().trim().parse().unwrap_or(0);
-    get_current_time() - *time + previous
-}
-
-// Calculate time elapsed today (since program started)
-fn get_time_today(time: &i64) -> i64 {
-    get_current_time() - *time
-}
-
-// Get full path to ~/.tmr/time_log.txt, ensure directory exists
-fn get_log_path() -> PathBuf {
-    let mut path = dirs::home_dir().expect("Cannot find home directory");
-    path.push(".tmr");
-    fs::create_dir_all(&path).expect("Failed to create ~/.tmr directory");
-    path.push("time_log.txt");
-    path
-}
-
-// Read time log from file, create if missing
-fn read_from_file() -> String {
-    let path = get_log_path();
-
-    if !path.exists() {
-        File::create(&path).expect("Unable to create log file");
-        return String::from("0");
+fn confirm_reset_file(){
+    println!("Are you sure you want to reset your progress? [Y] [N]");
+    if get_user_input().to_lowercase().trim() == "y" {
+        println!("Count has ben reset");
+        file_handler::reset_file();
+    } else {
+        println!("Cancelled action");
     }
-
-    let file = File::open(&path).expect("Unable to open log file");
-    let mut reader = BufReader::new(file);
-    let mut content = String::new();
-    reader.read_to_string(&mut content).expect("Failed to read log file");
-    content.trim().to_string()
-}
-
-// Save total time back to file
-fn save_to_file(content: i64) {
-    let path = get_log_path();
-    let mut file = File::create(path).expect("Unable to create log file");
-    writeln!(file, "{}", content).expect("Unable to write to log file");
-}
-
-fn get_current_time() -> i64 {
-    Utc::now().timestamp_millis()
 }
 
 // Stop logging and print the total time
 fn stop_logging(start_time: &i64) {
     println!(
         "Stopped the count, time programmed today: {} seconds",
-        convert_time(get_time_today(start_time))
+        time_handler::convert_time(time_handler::get_time_today(start_time))
     );
-    let total = get_total_time(start_time);
-    save_to_file(total);
-    let totalStr: String = convert_time(total);
-    println!("Total time (all sessions):{} {}", totalStr, get_badge(&total));
-}
-
-
-// Convert milliseconds to a human-readable format
-fn convert_time(time: i64) -> String {
-    let mut ms = time;
-    let day_ms = 1000 * 60 * 60 * 24;
-    let hour_ms = 1000 * 60 * 60;
-    let min_ms = 1000 * 60;
-    let sec_ms = 1000;
-
-    let days = ms / day_ms;
-    ms %= day_ms;
-    let hours = ms / hour_ms;
-    ms %= hour_ms;
-    let minutes = ms / min_ms;
-    ms %= min_ms;
-    let seconds = ms / sec_ms;
-
-    let mut parts = Vec::new();
-    if days > 0 { parts.push(format!("{} days", days)); }
-    if hours > 0 { parts.push(format!("{} hours", hours)); }
-    if minutes > 0 { parts.push(format!("{} minutes", minutes)); }
-    parts.push(format!("{} seconds", seconds));
-
-    parts.join(" ")
+    let total = time_handler::get_total_time(start_time);
+    file_handler::save_to_file(total);
+    let total_str: String = time_handler::convert_time(total);
+    println!("Total time (all sessions):{} {}", total_str, get_badge(&total));
 }
 
 fn get_badge(time: &i64) -> String {
